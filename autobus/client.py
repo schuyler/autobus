@@ -7,10 +7,13 @@ class Client:
     def __init__(self, url="redis://localhost", namespace=""):
         self.redis_url = url
         self.namespace = namespace
-        self.output = None
         self.listeners = {}
         self.event_types = {}
         self.tasks = []
+        self.state = "stopped"
+
+        self.output = None
+        self.state_changed = None
 
     def subscribe(self, cls, fn):
         event_type = self._register(cls)
@@ -71,6 +74,15 @@ class Client:
             except Exception as e:
                 logger.exception("Listener failed")
 
+    async def _set_state(self, state):
+        async with self.state_changed:
+            self.state = state
+            self.state_changed.notify_all()
+
+    async def _wait_for_state(self, state):
+        async with self.state_changed:
+            await self.state_changed.wait_for(lambda: self.state == state)
+
     async def _transmit(self, redis):
         logger.debug("Ready to transmit events")
         while True:
@@ -83,22 +95,25 @@ class Client:
         logger.debug("Ready to receive events")
         async with redis.pubsub() as channel:
             await channel.subscribe(self._channel({}))
+            await self._set_state("running")
             while True:
                 message = await channel.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message is not None:
                     logger.debug("Event received")
                     self._dispatch(message["data"])
 
-    def run(self):
+    async def run(self):
         if self.tasks:
             logger.debug("autobus was already running; run() is a no-op")
             return
         self.output = asyncio.Queue()
+        self.state_changed = asyncio.Condition()
         logger.info("Starting autobus (%s)", self.redis_url)
         redis = aioredis.from_url(self.redis_url, decode_responses=True)
         xmit = asyncio.create_task(self._transmit(redis), name="autobus_transmit")
         recv = asyncio.create_task(self._receive(redis), name="autobus_receive")
         self.tasks = [xmit, recv]
+        await self._wait_for_state("running")
 
     async def stop(self):
         logger.info("Stopping autobus")
