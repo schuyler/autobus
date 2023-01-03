@@ -102,7 +102,7 @@ class Client:
                     logger.debug("Event received")
                     self._dispatch(message["data"])
 
-    async def run(self):
+    async def start(self):
         if self.tasks:
             logger.debug("autobus was already running; run() is a no-op")
             return
@@ -121,3 +121,10 @@ class Client:
         for t in self.tasks:
             t.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
+
+    async def run(self):
+        try:
+            await self.start()
+            await asyncio.sleep()
+        finally:
+            await self.stop()

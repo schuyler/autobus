@@ -13,7 +13,7 @@ async def test_subscribe():
     def receive_pings(ping):
         received.append(ping.id)
 
-    await autobus.run()
+    await autobus.start()
     for n in range(5):
         autobus.publish(Ping(id=n))
     await autobus.stop()

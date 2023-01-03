@@ -13,10 +13,13 @@ def subscribe(event_cls):
 def publish(event):
     client.publish(event)
 
-def run(namespace="", url="redis://localhost"):
+def start(namespace="", url="redis://localhost"):
     client.namespace = namespace
     client.redis_url = url
-    return client.run()
+    return client.start()
 
 def stop():
     return client.stop()
+
+def run():
+    return client.run()
