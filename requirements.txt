@@ -1,3 +1,4 @@
 aioredis
 pydantic
+schedule
 pytest

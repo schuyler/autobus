@@ -1,6 +1,8 @@
 import aioredis
 import asyncio, json, logging 
 
+from .scheduler import Scheduler
+
 logger = logging.getLogger('autobus')
 
 class Client:
@@ -9,6 +11,7 @@ class Client:
         self.namespace = namespace
         self.listeners = {}
         self.event_types = {}
+        self.scheduler = Scheduler()
         self.tasks = []
         self.state = "stopped"
 
@@ -36,6 +39,9 @@ class Client:
         if not self.output:
             raise Exception("Can't publish as autobus is not running yet")
         self.output.put_nowait((channel, event))
+
+    def every(self, *args):
+        return self.scheduler.every(*args)
 
     def _channel(self, _obj): 
         return ":".join(("autobus", self.namespace, ""))
@@ -76,6 +82,7 @@ class Client:
 
     async def _set_state(self, state):
         async with self.state_changed:
+            logger.debug("Client shifting from %s to %s", self.state, state)
             self.state = state
             self.state_changed.notify_all()
 
@@ -102,6 +109,18 @@ class Client:
                     logger.debug("Event received")
                     self._dispatch(message["data"])
 
+    async def _run_scheduled(self):
+        logger.debug("Ready to run scheduled jobs")
+        await self._wait_for_state("running")
+        while True:
+            wait = self.scheduler.idle_seconds
+            if wait is None:
+                wait = 15 # check every so often for new tasks, just in case
+            if wait > 0:
+                logger.debug("Scheduler sleeping for %0.3f seconds", wait)
+                await asyncio.sleep(wait)
+            self.scheduler.run_pending()
+
     async def start(self):
         if self.tasks:
             logger.debug("autobus was already running; run() is a no-op")
@@ -112,19 +131,22 @@ class Client:
         redis = aioredis.from_url(self.redis_url, decode_responses=True)
         xmit = asyncio.create_task(self._transmit(redis), name="autobus_transmit")
         recv = asyncio.create_task(self._receive(redis), name="autobus_receive")
-        self.tasks = [xmit, recv]
+        pending = asyncio.create_task(self._run_scheduled(), name="autobus_pending")
+        self.tasks = [xmit, recv, pending]
         await self._wait_for_state("running")
 
     async def stop(self):
         logger.info("Stopping autobus")
-        await self.output.join()
+        if self.output:
+            await self.output.join()
         for t in self.tasks:
             t.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
+        await self._set_state("stopped")
 
     async def run(self):
         try:
             await self.start()
-            await asyncio.sleep()
+            await self._wait_for_state("stopping")
         finally:
             await self.stop()

@@ -1,4 +1,3 @@
-import asyncio
 from .client import Client
 from .event import Event
 
@@ -9,6 +8,15 @@ def subscribe(event_cls):
         client.subscribe(event_cls, fn)
         return fn
     return subscribe_decorator
+
+def schedule(job):
+    def schedule_decorator(fn):
+        job.do(fn)
+        return fn
+    return schedule_decorator
+
+def every(*args):
+    return client.every(*args)
 
 def publish(event):
     client.publish(event)
