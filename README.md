@@ -68,8 +68,9 @@ Now `autobus.Event` is just a subclass of `pydantic.BaseModel`, so anything
 do also.
 
 Currently, you don't _have_ to use `autobus.Event` as the base class for your
-events -- in principle, any simple class will work. But this may change in the
-future.
+events -- in principle, any simple class will work, so long as you can call
+`dict(obj)` and get back a dict that you can pass to the constructor. But this
+may change in the future.
 
 One other small caveat -- events are routed by their Python class name, which
 means that all of your event classes must be uniquely named in order to be
@@ -137,6 +138,9 @@ autobus.run(url="redis://my.redis.host:6379")
 
 Autobus does not use Redis for storage in any way; it only uses the
 [pub/sub functions](https://redis.io/docs/manual/pubsub/).
+
+Autobus provides no security features whatsoever. You are dependent on your
+Redis configuration to secure your event bus.
 
 If you want to run multiple, separate buses on the same Redis database, you can
 configure autobus with a namespaces:
@@ -209,7 +213,7 @@ long-running, it's best to either run it in a different thread, or (better yet)
 use `asyncio.create_task()` to spawn an `async` function to do the work.
 
 N.B. there is code to run async handlers directly from autobus, which would
-obviate this issue. It just needs to be tested properly.
+obviate this issue, but this code needs additional work.
 
 ## Testing
 
@@ -238,7 +242,7 @@ Patches welcome. By all means, please send pull requests!
 
 ## Todo
 
-- Actual testing of async handlers (as opposed to sync handlers, which are tested)
+- Finish support for async handlers (as opposed to sync handlers, which are tested)
 - Per-event-type pubsub channels (just need to do the bookkeeping)
 - Pydoc API documentation
 
