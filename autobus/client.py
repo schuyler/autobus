@@ -1,5 +1,5 @@
 import aioredis
-import asyncio, json, logging 
+import asyncio, json, logging, inspect
 
 from .scheduler import Scheduler
 
@@ -76,7 +76,10 @@ class Client:
         logger.debug("Dispatching %s to %d function(s)", event_type, len(listeners))
         for listener in listeners:
             try:
-                listener(obj)
+                if inspect.isawaitable(listener):
+                    asyncio.ensure_future(listener(obj))
+                else:
+                    listener(obj)
             except Exception as e:
                 logger.exception("Listener failed")
 
