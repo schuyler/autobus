@@ -1,4 +1,6 @@
 *.pyc
 .pytest_cache
+*.egg-info
+dist
 .envrc
 env

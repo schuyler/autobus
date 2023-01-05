@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autobus"
+version = "0.9.0"
+authors = [
+  { name="Schuyler Erle", email="schuyler@nocat.net" },
+]
+description = "A lightweight, networked, opinionated event bus for Python 3"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/schuyler/autobus"
+"Bug Tracker" = "https://github.com/schuyler/autobus/issues"
