@@ -1,6 +1,6 @@
 import autobus
 import pytest
-import asyncio
+import asyncio, os
 
 from autobus import every
 
@@ -13,8 +13,11 @@ async def test_scheduler():
         global counter
         counter += 1
 
-    await autobus.start()
+    await autobus.start(url=os.environ.get("REDIS_URL"))
     await asyncio.sleep(1.1)
     await autobus.stop()
 
     assert counter == 4
+
+if "REDIS_URL" not in os.environ:
+    pytest.skip("set REDIS_URL to enable tests", allow_module_level=True)
