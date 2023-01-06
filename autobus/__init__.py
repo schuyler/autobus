@@ -4,10 +4,7 @@ from .event import Event
 client = Client()
 
 def subscribe(event_cls):
-    def subscribe_decorator(fn):
-        client.subscribe(event_cls, fn)
-        return fn
-    return subscribe_decorator
+    return client.subscribe(event_cls)
 
 def unsubscribe(event_cls, fn):
     client.unsubscribe(event_cls, fn)

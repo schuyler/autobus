@@ -2,13 +2,19 @@ import aioredis
 import asyncio, json, logging, inspect
 
 from .scheduler import Scheduler
+from .serializer import Serializer, EncryptedSerializer
 
 logger = logging.getLogger('autobus')
 
 class Client:
-    def __init__(self, url="redis://localhost", namespace=""):
+    def __init__(self, url="redis://localhost", namespace="", shared_key=None):
         self.redis_url = url
         self.namespace = namespace
+
+        if shared_key:
+            self.serializer = EncryptedSerializer(shared_key)
+        else:
+            self.serializer = Serializer()
 
         self.listeners = {}
         self.event_types = {}
@@ -20,13 +26,16 @@ class Client:
         self.state = "stopped"
         self.state_changed = None
         self.clean_up_ready = None
-        self.subscription_update = None
 
-    def subscribe(self, cls, fn):
+    def subscribe(self, cls, fn=None):
+        # If no function was passed, return a function decorator
+        if not fn:
+            return lambda actual_fn: self.subscribe(cls, actual_fn)
         event_type = self._register(cls)
         logging.info("Subscribing %s to %s", fn.__name__, event_type)
         listeners = self.listeners.setdefault(event_type, set())
         listeners.add(fn)
+        return fn
     
     def unsubscribe(self, cls, fn):
         event_type = cls.__name__
@@ -54,18 +63,10 @@ class Client:
         return ":".join(("autobus", self.namespace, name))
 
     def _load(self, blob):
-        event = json.loads(blob)
-        event_type = event.pop("type")
-        if event_type not in self.event_types:
-            return event_type, None
-        cls = self.event_types[event_type]
-        return event_type, cls(**event)
+        return self.serializer.load(blob, self.event_types)
 
     def _dump(self, obj):
-        event_type = obj.__class__.__name__
-        event = dict(obj)
-        event["type"] = event_type
-        return json.dumps(event)
+        return self.serializer.dump(obj)
 
     def _register(self, cls):
         name = cls.__name__
@@ -172,7 +173,6 @@ class Client:
         self.output = asyncio.Queue()
         self.clean_up_ready = asyncio.Queue()
         self.state_changed = asyncio.Condition()
-        self.subscription_update = asyncio.Lock()
         logger.info("Starting autobus (%s)", self.redis_url)
         redis = aioredis.from_url(self.redis_url, decode_responses=True)
         self.tasks.update((

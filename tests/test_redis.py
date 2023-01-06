@@ -1,6 +1,6 @@
 import autobus
 import pytest
-import os, asyncio, logging
+import os, asyncio
 
 class Ping(autobus.Event):
     id: int

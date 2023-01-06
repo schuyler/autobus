@@ -1,9 +1,7 @@
-import json, os, base64
+import json
 
 try:
     from cryptography.fernet import Fernet, InvalidToken
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     has_crypto = True
 except ImportError:
     has_crypto = False
@@ -39,8 +37,8 @@ class EncryptedSerializer(Serializer):
             return e, None
         return super().load(plaintext, types)
 
-    def dump(self, obj, types):
-        plaintext = super().dump(obj, types)
+    def dump(self, obj):
+        plaintext = super().dump(obj)
         return self.fernet.encrypt(plaintext.encode("utf-8"))
 
 if __name__ == "__main__":

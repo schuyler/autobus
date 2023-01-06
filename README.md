@@ -67,15 +67,6 @@ Now `autobus.Event` is just a subclass of `pydantic.BaseModel`, so anything
 [Pydantic](https://docs.pydantic.dev/usage/models/) can do, `autobus.Event` can
 do also.
 
-Currently, you don't _have_ to use `autobus.Event` as the base class for your
-events -- in principle, any simple class will work, so long as you can call
-`dict(obj)` and get back a dict that you can pass to the constructor. But this
-may change in the future.
-
-One other small caveat -- events are routed by their Python class name, which
-means that all of your event classes must be uniquely named in order to be
-routed correctly.
-
 ### Publishing an event to the bus
 
 ```python
@@ -121,7 +112,7 @@ def do_this_regularly():
 As with event handlers, the scheduled function can be regular or `async`, and
 the return value is discarded.
 
-### Running the event bus
+### Running the event bus itself
 
 Autobus relies on [asyncio](https://docs.python.org/3/library/asyncio.html) for
 concurrency. You need to have the bus running in order to send and receive
@@ -135,7 +126,10 @@ if __name__ == "__main__":
     asyncio.run(autobus.run())
 ```
 
-### Configuring the event bus
+It is also possible to run multiple separate clients in a single process, by
+instantiating and using `autobus.Client` directly.
+
+### Configuring the Redis backend
 
 Autobus depends on Redis, and, by default, assumes that Redis is running on
 `localhost:6379`. If you are running Redis somewhere else, you can pass a Redis
@@ -148,11 +142,10 @@ autobus.run(url="redis://my.redis.host:6379")
 Autobus does not use Redis for storage in any way; it only uses the
 [pub/sub functions](https://redis.io/docs/manual/pubsub/).
 
-Autobus provides no security features whatsoever. You are dependent on your
-Redis configuration to secure your event bus.
+### Adding an application namespace
 
 If you want to run multiple, separate buses on the same Redis database, you can
-configure autobus with a namespaces:
+configure autobus with a namespace:
 
 ```python
 autobus.run(namespace="distinct_namespace")
@@ -161,8 +154,29 @@ autobus.run(namespace="distinct_namespace")
 Two autobus clients with different namespaces will not be able to share
 messages, which is probably what you wanted.
 
-It is also possible to run multiple separate clients in a single process, by
-instantiating and using `autobus.Client` directly.
+### Encrypting events over the bus
+
+Finally, you can optionally encrypt events sent over the bus using a shared key:
+
+```python
+autobus.run(shared_key=my_shared_key)
+```
+
+If a `shared_key` is supplied, autobus will use symmetric Fernet encryption for
+all events sent and received on the bus. Any events received by autobus which
+cannot be decrypted and verified using the supplied key will be discarded.
+
+This functionality relies on [Fernet](https://cryptography.io/en/latest/fernet/)
+from the Python [cryptography](https://cryptography.io/en/latest/) module, which
+must be installed for `shared_key` to work.
+
+To generate a key suitable for shared encryption, run this command from the
+command line, and then supply the Base64 string it prints out to your autobus
+application:
+
+```sh
+python -m autobus.serializer generate
+```
 
 ### Logging and exception handling
 
@@ -213,6 +227,22 @@ Python's `asyncio` provides concurrency but _not_ parallelism. Everything runs
 in a single thread by default. If you want your event handlers and scheduled
 functions to be non-blocking, you should consider defining them `async` and
 having them `await` as appropriate.
+
+### Caveats on event definition
+
+Currently, you don't _have_ to use `autobus.Event` as the base class for your
+events -- in principle, any simple class will work, so long as you can call
+`dict(obj)` and get back a dict that you can pass as keyword args to the
+constructor. But this may change in the future.
+
+Two other small caveats apply:
+
+- Events are routed by their Python class name, which means that all of your
+  event classes must be uniquely named in order to be routed correctly.
+- Autobus adds a _type_ key to the return value from `dict(event)` before
+  serializing the result, so that the event can be identified on the other end.
+  (You aren't using `type` as the name of a class instance property in Python,
+  are you?)
 
 ## Testing
 
