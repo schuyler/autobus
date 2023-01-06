@@ -241,9 +241,10 @@ Patches welcome. By all means, please send pull requests!
 
 ## Todo
 
-- Finish support for async handlers (as opposed to sync handlers, which are tested)
 - Per-event-type pubsub channels (just need to do the bookkeeping)
 - Pydoc API documentation
+- Fix: start() and stop() have an occasional race condition where events can be
+  sent before they can be consumed, or are not fully consumed before shutdown.
 
 Otherwise I regard autobus as pretty feature complete.
 
