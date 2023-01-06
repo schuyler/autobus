@@ -241,8 +241,7 @@ Patches welcome. By all means, please send pull requests!
 
 ## Todo
 
-- Per-event-type pubsub channels (just need to do the bookkeeping)
-- Pydoc API documentation
+- API reference
 - Fix: start() has an occasional race condition where events can be sent before
   they can be consumed locally. This is probably not a real production issue but
   it would be nice for them to be synchronized.

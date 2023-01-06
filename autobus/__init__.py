@@ -9,6 +9,9 @@ def subscribe(event_cls):
         return fn
     return subscribe_decorator
 
+def unsubscribe(event_cls, fn):
+    client.unsubscribe(event_cls, fn)
+
 def schedule(job):
     def schedule_decorator(fn):
         client.schedule(job, fn)

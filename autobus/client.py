@@ -9,15 +9,18 @@ class Client:
     def __init__(self, url="redis://localhost", namespace=""):
         self.redis_url = url
         self.namespace = namespace
+
         self.listeners = {}
         self.event_types = {}
+        self.channels = set()
         self.scheduler = Scheduler()
-        self.tasks = set()
-        self.state = "stopped"
 
         self.output = None
+        self.tasks = set()
+        self.state = "stopped"
         self.state_changed = None
         self.clean_up_ready = None
+        self.subscription_update = None
 
     def subscribe(self, cls, fn):
         event_type = self._register(cls)
@@ -26,7 +29,7 @@ class Client:
         listeners.add(fn)
     
     def unsubscribe(self, cls, fn):
-        event_type = self._register(cls)
+        event_type = cls.__name__
         listeners = self.listeners.get(event_type)
         if not listeners: return
         logger.info("Attempting to unsubscribe %s from %s", fn.__name__, event_type)
@@ -34,7 +37,7 @@ class Client:
 
     def publish(self, obj):
         event_type = self._register(obj.__class__)
-        channel = self._channel(obj)
+        channel = self._channel(event_type)
         event = self._dump(obj)
         logger.debug("Publishing %s to %s", event_type, channel)
         if not self.output:
@@ -47,8 +50,8 @@ class Client:
     def every(self, *args):
         return self.scheduler.every(*args)
 
-    def _channel(self, _obj): 
-        return ":".join(("autobus", self.namespace, ""))
+    def _channel(self, name): 
+        return ":".join(("autobus", self.namespace, name))
 
     def _load(self, blob):
         event = json.loads(blob)
@@ -76,7 +79,10 @@ class Client:
         if not obj:
             logger.debug("Discarding unknown message: %s", event_type)
             return
-        listeners = self.listeners.get(event_type, [])
+        listeners = self.listeners.get(event_type, None)
+        if not listeners:
+            logger.debug("No listeners for event: %s", event_type)
+            return
         logger.debug("Dispatching %s to %d function(s)", event_type, len(listeners))
         for listener in listeners:
             try:
@@ -104,6 +110,19 @@ class Client:
         async with self.state_changed:
             await self.state_changed.wait_for(lambda: self.state == state)
 
+    async def _update_subscriptions(self, pubsub):
+        for event_type, listeners in self.listeners.items():
+            if listeners and event_type not in self.channels:
+                channel = self._channel(event_type)
+                logger.info("Subscribing to pubsub channel: %s", channel)
+                await pubsub.subscribe(channel)
+                self.channels.add(event_type)
+            elif not listeners:
+                channel = self._channel(event_type)
+                logger.info("Unsubscribing from pubsub channel: %s", channel)
+                await pubsub.unsubscribe(channel)
+                self.channels.remove(event_type)
+
     async def _transmit(self, redis):
         logger.debug("Ready to transmit events")
         while True:
@@ -113,19 +132,23 @@ class Client:
             self.output.task_done()
 
     async def _receive(self, redis):
-        logger.debug("Ready to receive events")
-        async with redis.pubsub() as channel:
-            await channel.subscribe(self._channel({}))
+        async with redis.pubsub() as pubsub:
+            await self._update_subscriptions(pubsub)
             await self._set_state("running")
+            logger.debug("Ready to receive events")
             while True:
-                message = await channel.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message is not None:
                     logger.debug("Event received")
                     self._dispatch(message["data"])
+                # This can get called multiple times in a race condition. The
+                # calls are basically idempotent, but it would be a problem if
+                # they weren't.
+                await self._update_subscriptions(pubsub)
 
     async def _run_scheduled(self):
-        logger.debug("Ready to run scheduled jobs")
         await self._wait_for_state("running")
+        logger.debug("Ready to run scheduled jobs")
         while True:
             wait = self.scheduler.idle_seconds
             if wait is None:
@@ -140,6 +163,7 @@ class Client:
             task = await self.clean_up_ready.get()
             self.tasks.remove(task)
             await task
+            self.clean_up_ready.task_done()
 
     async def start(self):
         if self.tasks:
@@ -148,6 +172,7 @@ class Client:
         self.output = asyncio.Queue()
         self.clean_up_ready = asyncio.Queue()
         self.state_changed = asyncio.Condition()
+        self.subscription_update = asyncio.Lock()
         logger.info("Starting autobus (%s)", self.redis_url)
         redis = aioredis.from_url(self.redis_url, decode_responses=True)
         self.tasks.update((
