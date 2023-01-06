@@ -12,11 +12,12 @@ class Client:
         self.listeners = {}
         self.event_types = {}
         self.scheduler = Scheduler()
-        self.tasks = []
+        self.tasks = set()
         self.state = "stopped"
 
         self.output = None
         self.state_changed = None
+        self.clean_up_ready = None
 
     def subscribe(self, cls, fn):
         event_type = self._register(cls)
@@ -39,6 +40,9 @@ class Client:
         if not self.output:
             raise Exception("Can't publish as autobus is not running yet")
         self.output.put_nowait((channel, event))
+
+    def schedule(self, job, fn):
+        job.do(self._run_handler, fn)
 
     def every(self, *args):
         return self.scheduler.every(*args)
@@ -76,12 +80,19 @@ class Client:
         logger.debug("Dispatching %s to %d function(s)", event_type, len(listeners))
         for listener in listeners:
             try:
-                if inspect.isawaitable(listener):
-                    asyncio.ensure_future(listener(obj))
-                else:
-                    listener(obj)
+                self._run_handler(listener, obj)
             except Exception as e:
                 logger.exception("Listener failed")
+
+    def _run_handler(self, handler, *args):
+        logger.debug("Running handler %s", handler.__name__)
+        if inspect.iscoroutinefunction(handler):
+            logger.debug("%s is a coroutine; launching task", handler.__name__)
+            task = asyncio.create_task(handler(*args))
+            task.add_done_callback(self.clean_up_ready.put_nowait)
+            self.tasks.add(task)
+        else:
+            handler(*args)
 
     async def _set_state(self, state):
         async with self.state_changed:
@@ -124,18 +135,27 @@ class Client:
                 await asyncio.sleep(wait)
             self.scheduler.run_pending()
 
+    async def _clean_up_tasks(self):
+        while True:
+            task = await self.clean_up_ready.get()
+            self.tasks.remove(task)
+            await task
+
     async def start(self):
         if self.tasks:
             logger.debug("autobus was already running; run() is a no-op")
             return
         self.output = asyncio.Queue()
+        self.clean_up_ready = asyncio.Queue()
         self.state_changed = asyncio.Condition()
         logger.info("Starting autobus (%s)", self.redis_url)
         redis = aioredis.from_url(self.redis_url, decode_responses=True)
-        xmit = asyncio.create_task(self._transmit(redis), name="autobus_transmit")
-        recv = asyncio.create_task(self._receive(redis), name="autobus_receive")
-        pending = asyncio.create_task(self._run_scheduled(), name="autobus_pending")
-        self.tasks = [xmit, recv, pending]
+        self.tasks.update((
+            asyncio.create_task(self._transmit(redis), name="autobus_transmit"),
+            asyncio.create_task(self._receive(redis), name="autobus_receive"),
+            asyncio.create_task(self._run_scheduled(), name="autobus_pending"),
+            asyncio.create_task(self._clean_up_tasks(), name="autobus_cleanup")
+        ))
         await self._wait_for_state("running")
 
     async def stop(self):
@@ -145,7 +165,7 @@ class Client:
         for t in self.tasks:
             t.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
-        await self._set_state("stopped")
+        await self._set_state("stopped") # this state is never actually set
 
     async def run(self):
         try:

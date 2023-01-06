@@ -11,7 +11,7 @@ def subscribe(event_cls):
 
 def schedule(job):
     def schedule_decorator(fn):
-        job.do(fn)
+        client.schedule(job, fn)
         return fn
     return schedule_decorator
 

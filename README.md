@@ -98,6 +98,12 @@ def handle_my_event(event):
     ...
 ```
 
+The event handler can be either a regular Python function or an `async`
+function. If the latter, the `async` function is run with
+`asyncio.create_task()` and later awaited.
+
+Either way, the event handler's return value is discarded.
+
 ### Running recurring tasks
 
 Autobus uses the [Schedule](https://schedule.readthedocs.io/en/stable/) module
@@ -111,6 +117,9 @@ def do_this_regularly():
     # this will get called ~every 10 minutes
     ...
 ```
+
+As with event handlers, the scheduled function can be regular or `async`, and
+the return value is discarded.
 
 ### Running the event bus
 
@@ -200,20 +209,10 @@ def main():
 
 ### Long-running handlers
 
-Python's `asyncio` provides concurrency but _not_ parallelism. Everything in an
-asyncio event loop happens in the same thread. For convenience and simplicity,
-all autobus handlers are treated as _synchronous_ functions -- that is, they are
-not expected to be defined `async` and they are not called with `await`. This
-means that, whatever your event handler is doing, it's blocking everything else
-on (probably) the main thread.
-
-This is great if your handler just transforms an event and kicks the data off
-somewhere else. However, if you want an autobus handler to do something
-long-running, it's best to either run it in a different thread, or (better yet)
-use `asyncio.create_task()` to spawn an `async` function to do the work.
-
-N.B. there is code to run async handlers directly from autobus, which would
-obviate this issue, but this code needs additional work.
+Python's `asyncio` provides concurrency but _not_ parallelism. Everything runs
+in a single thread by default. If you want your event handlers and scheduled
+functions to be non-blocking, you should consider defining them `async` and
+having them `await` as appropriate.
 
 ## Testing
 
