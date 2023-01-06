@@ -2,3 +2,4 @@ aioredis
 pydantic
 schedule
 pytest
+cryptography
