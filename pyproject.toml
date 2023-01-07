@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autobus"
-version = "0.9.0"
+version = "0.9.1"
 authors = [
   { name="Schuyler Erle", email="schuyler@nocat.net" },
 ]
@@ -15,6 +15,19 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+]
+dependencies = [
+  "aioredis",
+  "pydantic",
+  "schedule"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest"
+]
+crypto = [
+  "cryptography"
 ]
 
 [project.urls]
