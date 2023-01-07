@@ -15,12 +15,12 @@ lifting.
 import autobus
 import asyncio
 
-@autobus.subcribe(MyEventClass)
+@autobus.subscribe(MyEventClass)
 def handle_my_event(event):
     # do something in response
     ...
 
-asyncio.run(autobus.run())
+autobus.run()
 ```
 
 and then elsewhere, maybe in another process entirely:
@@ -28,6 +28,7 @@ and then elsewhere, maybe in another process entirely:
 ```python
 event = MyEventClass(...)
 autobus.publish(event)
+autobus.run()
 ```
 
 Presto! The event you published in one place is transparently handled in
@@ -123,11 +124,10 @@ events. The easiest way to run Autobus is to pass its `run()` function to
 import asyncio
 
 if __name__ == "__main__":
-    asyncio.run(autobus.run())
+    autobus.run()
 ```
 
-It is also possible to run multiple separate clients in a single process, by
-instantiating and using `autobus.Client` directly.
+## Configuration
 
 ### Configuring the Redis backend
 
@@ -178,6 +178,8 @@ application:
 python -m autobus.serializer generate
 ```
 
+## Operation
+
 ### Logging and exception handling
 
 Autobus relies on Python's built-in
@@ -211,14 +213,32 @@ example](https://www.uvicorn.org/#uvicornrun) from the uvicorn docs, you could
 do something like:
 
 ```python
-def main():
+async def main():
+    redis_url = "redis://my.redis.host"
     config = uvicorn.Config("main:app", port=5000, log_level="info")
     server = uvicorn.Server(config)
-    redis_url = "redis://my.redis.host"
-    await asyncio.gather(
-        asyncio.create_task(autobus.run(url=redis_url)),
-        asyncio.create_task(server.serve())
-    )
+
+    try:
+        await autobus.start(url=redis_url)
+        await server.serve()
+    finally:
+        await autobus.stop()
+
+asyncio.run(main())
+```
+
+It is also possible to run multiple autobus clients in a single process, by
+instantiating and using `autobus.Client` directly.
+
+```python
+async def main():
+    client = autobus.Client(...)
+    try:
+        await client.start()
+    finally:
+        await client.start()
+
+asyncio.run(main())
 ```
 
 ### Long-running handlers
@@ -241,7 +261,7 @@ Two other small caveats apply:
   event classes must be uniquely named in order to be routed correctly.
 - Autobus adds a _type_ key to the return value from `dict(event)` before
   serializing the result, so that the event can be identified on the other end.
-  (You aren't using `type` as the name of a class instance property in Python,
+  (You aren't using `type` as the name of an instance property in Python,
   are you?)
 
 ## Testing

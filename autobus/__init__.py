@@ -1,3 +1,5 @@
+import asyncio
+
 from .client import Client
 from .event import Event
 
@@ -30,4 +32,4 @@ def stop():
     return client.stop()
 
 def run():
-    return client.run()
+    asyncio.run(client.run())
