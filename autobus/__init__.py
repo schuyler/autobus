@@ -31,5 +31,7 @@ def start(namespace="", url="redis://localhost"):
 def stop():
     return client.stop()
 
-def run():
+def run(namespace="", url="redis://localhost"):
+    client.namespace = namespace
+    client.redis_url = url
     asyncio.run(client.run())
