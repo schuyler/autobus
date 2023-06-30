@@ -36,11 +36,11 @@ another.
 
 ## Installation
 
-```sh
-pip install autobus
-```
+~pip install autobus~
 
-or if you want to build from source,
+I'm currently waiting to see if the `autobus` package name might be made available on PyPI.
+
+If you want to build from source,
 
 ```sh
 git clone git@github.com:schuyler/autobus
