@@ -44,3 +44,7 @@ all = [
 [project.urls]
 "Homepage" = "https://github.com/schuyler/autobus"
 "Bug Tracker" = "https://github.com/schuyler/autobus/issues"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
