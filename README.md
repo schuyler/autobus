@@ -2,9 +2,11 @@
 
 Autobus is a lightweight, networked, opinionated event bus for Python 3.
 
-Autobus leans on [Redis](https://redis.io/),
-[asyncio](https://docs.python.org/3/library/asyncio.html),
-[aioredis](https://aioredis.readthedocs.io/en/latest/),
+Autobus supports two transport backends:
+- **UDP multicast** (default) - Zero configuration, no external dependencies
+- **Redis pub/sub** - For distributed systems across network boundaries
+
+It also leans on [asyncio](https://docs.python.org/3/library/asyncio.html),
 [pydantic](https://docs.pydantic.dev/), and
 [schedule](https://schedule.readthedocs.io/en/stable/) to do most of its heavy
 lifting.
@@ -36,19 +38,23 @@ another.
 
 ## Installation
 
-~pip install autobus~
+```sh
+pip install autobus
+```
 
-I'm currently waiting to see if the `autobus` package name might be made available on PyPI.
+For Redis transport support:
 
-If you want to build from source,
+```sh
+pip install autobus[redis]
+```
+
+If you want to build from source:
 
 ```sh
 git clone git@github.com:schuyler/autobus
 cd autobus
-pip install -r requirements.txt
+pip install -e .
 ```
-
-You must have Redis running somewhere in order to use Autobus.
 
 ## Usage
 
@@ -76,7 +82,7 @@ autobus.publish(event)
 ```
 
 When `publish()` is called, the event object is serialized to JSON and sent out
-over a Redis pub/sub channel. All subscribers to that event class will receive a
+over the transport. All subscribers to that event class will receive a
 copy of the event object.
 
 ### Receving an event from the bus
@@ -129,22 +135,46 @@ if __name__ == "__main__":
 
 ## Configuration
 
-### Configuring the Redis backend
+### Transport backends
 
-Autobus depends on Redis, and, by default, assumes that Redis is running on
-`localhost:6379`. If you are running Redis somewhere else, you can pass a Redis
-DSN URL to `autobus.run()`:
+Autobus supports two transport backends, selected via URL scheme:
+
+#### UDP Multicast (default)
+
+UDP multicast requires no external services and works out of the box for
+processes on the same network segment:
+
+```python
+# Default - uses UDP multicast on 239.255.0.1:5000
+autobus.run()
+
+# Explicit UDP configuration
+autobus.run(url="udp://239.255.0.1:5000")
+```
+
+**Note:** UDP multicast has a message size limit of approximately 64KB. For
+larger messages, use the Redis transport.
+
+#### Redis pub/sub
+
+For distributed systems across network boundaries, use Redis:
 
 ```python
 autobus.run(url="redis://my.redis.host:6379")
+
+# Redis with TLS
+autobus.run(url="rediss://secure.redis.host:6379")
 ```
 
 Autobus does not use Redis for storage in any way; it only uses the
 [pub/sub functions](https://redis.io/docs/manual/pubsub/).
 
+**Note:** Redis transport requires the `redis` package. Install with
+`pip install autobus[redis]`.
+
 ### Adding an application namespace
 
-If you want to run multiple, separate buses on the same Redis database, you can
+If you want to run multiple, separate buses on the same transport, you can
 configure autobus with a namespace:
 
 ```python
@@ -214,12 +244,11 @@ do something like:
 
 ```python
 async def main():
-    redis_url = "redis://my.redis.host"
     config = uvicorn.Config("main:app", port=5000, log_level="info")
     server = uvicorn.Server(config)
 
     try:
-        await autobus.start(url=redis_url)
+        await autobus.start()
         await server.serve()
     finally:
         await autobus.stop()
@@ -236,7 +265,7 @@ async def main():
     try:
         await client.start()
     finally:
-        await client.start()
+        await client.stop()
 
 asyncio.run(main())
 ```
@@ -269,11 +298,12 @@ Two other small caveats apply:
 ### Running the tests
 
 ```sh
-REDIS_URL=redis://localhost:6379 pytest
-```
+# Run UDP multicast tests (no external dependencies)
+pytest tests/test_multicast.py
 
-You will need Redis running in order to run the tests. Sorry. Mocking Redis
-pubsub accurately in asyncio was not something I felt like bothering with.
+# Run Redis tests (requires Redis)
+REDIS_URL=redis://localhost:6379 pytest tests/test_redis.py
+```
 
 ### Redis on MacOS
 

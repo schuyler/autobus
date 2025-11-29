@@ -4,29 +4,40 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autobus"
-version = "0.9.1"
+version = "0.10.0"
 authors = [
   { name="Schuyler Erle", email="schuyler@nocat.net" },
 ]
 description = "A lightweight, networked, opinionated event bus for Python 3"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 dependencies = [
-  "aioredis",
   "pydantic",
   "schedule"
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest"
+  "pytest",
+  "pytest-asyncio"
 ]
 crypto = [
+  "cryptography"
+]
+redis = [
+  "redis>=4.2.0"
+]
+all = [
+  "redis>=4.2.0",
   "cryptography"
 ]
 

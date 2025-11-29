@@ -1,20 +1,33 @@
-import aioredis
-import asyncio, json, logging, inspect
+import asyncio
+import inspect
+import logging
+from typing import Optional
 
 from .scheduler import Scheduler
 from .serializer import Serializer, EncryptedSerializer
+from .transport import Transport, create_transport
 
 logger = logging.getLogger('autobus')
 
+
 class Client:
-    def __init__(self, url="redis://localhost", namespace="", shared_key=None):
-        self.redis_url = url
+    def __init__(
+        self,
+        url: Optional[str] = None,
+        namespace: str = "",
+        shared_key: Optional[str] = None,
+        transport: Optional[Transport] = None
+    ):
+        self._url = url
         self.namespace = namespace
 
         if shared_key:
             self.serializer = EncryptedSerializer(shared_key)
         else:
             self.serializer = Serializer()
+
+        # Transport can be provided directly or created from URL
+        self._transport = transport
 
         self.listeners = {}
         self.event_types = {}
@@ -26,6 +39,29 @@ class Client:
         self.state = "stopped"
         self.state_changed = None
         self.clean_up_ready = None
+        self._start_lock = asyncio.Lock()
+
+    @property
+    def url(self) -> Optional[str]:
+        return self._url
+
+    @url.setter
+    def url(self, value: Optional[str]) -> None:
+        if self._transport is not None and value != self._url:
+            # Invalidate cached transport when URL changes
+            logger.debug("URL changed, invalidating cached transport")
+            self._transport = None
+        self._url = value
+
+    @property
+    def transport(self) -> Transport:
+        if self._transport is None:
+            self._transport = create_transport(self._url)
+        return self._transport
+
+    @transport.setter
+    def transport(self, value: Transport) -> None:
+        self._transport = value
 
     def subscribe(self, cls, fn=None):
         # If no function was passed, return a function decorator
@@ -36,11 +72,12 @@ class Client:
         listeners = self.listeners.setdefault(event_type, set())
         listeners.add(fn)
         return fn
-    
+
     def unsubscribe(self, cls, fn):
         event_type = cls.__name__
         listeners = self.listeners.get(event_type)
-        if not listeners: return
+        if not listeners:
+            return
         logger.info("Attempting to unsubscribe %s from %s", fn.__name__, event_type)
         listeners.discard(fn)
 
@@ -50,7 +87,7 @@ class Client:
         event = self._dump(obj)
         logger.debug("Publishing %s to %s", event_type, channel)
         if not self.output:
-            raise Exception("Can't publish as autobus is not running yet")
+            raise RuntimeError("Can't publish as autobus is not running yet")
         self.output.put_nowait((channel, event))
 
     def schedule(self, job, fn):
@@ -59,7 +96,7 @@ class Client:
     def every(self, *args):
         return self.scheduler.every(*args)
 
-    def _channel(self, name): 
+    def _channel(self, name):
         return ":".join(("autobus", self.namespace, name))
 
     def _load(self, blob):
@@ -111,41 +148,54 @@ class Client:
         async with self.state_changed:
             await self.state_changed.wait_for(lambda: self.state == state)
 
-    async def _update_subscriptions(self, pubsub):
+    async def _update_subscriptions(self):
         for event_type, listeners in self.listeners.items():
             if listeners and event_type not in self.channels:
                 channel = self._channel(event_type)
-                logger.info("Subscribing to pubsub channel: %s", channel)
-                await pubsub.subscribe(channel)
+                logger.info("Subscribing to channel: %s", channel)
+                await self.transport.subscribe(channel)
                 self.channels.add(event_type)
-            elif not listeners:
+            elif not listeners and event_type in self.channels:
                 channel = self._channel(event_type)
-                logger.info("Unsubscribing from pubsub channel: %s", channel)
-                await pubsub.unsubscribe(channel)
-                self.channels.remove(event_type)
+                logger.info("Unsubscribing from channel: %s", channel)
+                await self.transport.unsubscribe(channel)
+                self.channels.discard(event_type)
 
-    async def _transmit(self, redis):
+    async def _transmit(self):
         logger.debug("Ready to transmit events")
         while True:
-            channel, event = await self.output.get()
-            logger.debug("Publishing event to %s", channel)
-            await redis.publish(channel, event)
-            self.output.task_done()
+            try:
+                channel, event = await self.output.get()
+                logger.debug("Publishing event to %s", channel)
+                await self.transport.publish(channel, event)
+                self.output.task_done()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.exception("Error transmitting event: %s", e)
+                # Mark task done even on error to prevent queue deadlock
+                try:
+                    self.output.task_done()
+                except ValueError:
+                    pass  # task_done called too many times
 
-    async def _receive(self, redis):
-        async with redis.pubsub() as pubsub:
-            await self._update_subscriptions(pubsub)
-            await self._set_state("running")
-            logger.debug("Ready to receive events")
-            while True:
-                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-                if message is not None:
-                    logger.debug("Event received")
-                    self._dispatch(message["data"])
-                # This can get called multiple times in a race condition. The
-                # calls are basically idempotent, but it would be a problem if
-                # they weren't.
-                await self._update_subscriptions(pubsub)
+    async def _receive(self):
+        await self._update_subscriptions()
+        await self._set_state("running")
+        logger.debug("Ready to receive events")
+        while True:
+            try:
+                result = await self.transport.receive(timeout=1.0)
+                if result is not None:
+                    channel, data = result
+                    logger.debug("Event received on %s", channel)
+                    self._dispatch(data)
+                await self._update_subscriptions()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.exception("Error receiving event: %s", e)
+                await asyncio.sleep(0.1)  # Brief pause before retrying
 
     async def _run_scheduled(self):
         await self._wait_for_state("running")
@@ -153,7 +203,7 @@ class Client:
         while True:
             wait = self.scheduler.idle_seconds
             if wait is None:
-                wait = 15 # check every so often for new tasks, just in case
+                wait = 15  # check every so often for new tasks, just in case
             if wait > 0:
                 logger.debug("Scheduler sleeping for %0.3f seconds", wait)
                 await asyncio.sleep(wait)
@@ -167,20 +217,23 @@ class Client:
             self.clean_up_ready.task_done()
 
     async def start(self):
-        if self.tasks:
-            logger.debug("autobus was already running; run() is a no-op")
-            return
-        self.output = asyncio.Queue()
-        self.clean_up_ready = asyncio.Queue()
-        self.state_changed = asyncio.Condition()
-        logger.info("Starting autobus (%s)", self.redis_url)
-        redis = aioredis.from_url(self.redis_url, decode_responses=True)
-        self.tasks.update((
-            asyncio.create_task(self._transmit(redis), name="autobus_transmit"),
-            asyncio.create_task(self._receive(redis), name="autobus_receive"),
-            asyncio.create_task(self._run_scheduled(), name="autobus_pending"),
-            asyncio.create_task(self._clean_up_tasks(), name="autobus_cleanup")
-        ))
+        async with self._start_lock:
+            if self.tasks:
+                logger.debug("autobus was already running; start() is a no-op")
+                return
+            self.output = asyncio.Queue()
+            self.clean_up_ready = asyncio.Queue()
+            self.state_changed = asyncio.Condition()
+
+            logger.info("Starting autobus with %s", self.transport.__class__.__name__)
+            await self.transport.connect()
+
+            self.tasks.update((
+                asyncio.create_task(self._transmit(), name="autobus_transmit"),
+                asyncio.create_task(self._receive(), name="autobus_receive"),
+                asyncio.create_task(self._run_scheduled(), name="autobus_pending"),
+                asyncio.create_task(self._clean_up_tasks(), name="autobus_cleanup")
+            ))
         await self._wait_for_state("running")
 
     async def stop(self):
@@ -190,7 +243,9 @@ class Client:
         for t in self.tasks:
             t.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
-        await self._set_state("stopped") # this state is never actually set
+        await self.transport.disconnect()
+        self.tasks.clear()
+        await self._set_state("stopped")
 
     async def run(self):
         try:
