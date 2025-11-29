@@ -4,3 +4,6 @@
 dist
 .envrc
 env
+.python-version
+build/
+uv.lock
