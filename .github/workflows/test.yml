@@ -11,7 +11,7 @@ on:
   workflow_call:  # Allow other workflows to call this
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
