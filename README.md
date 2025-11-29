@@ -51,7 +51,7 @@ pip install autobus[redis]
 If you want to build from source:
 
 ```sh
-git clone git@github.com:schuyler/autobus
+git clone https://github.com/schuyler/autobus
 cd autobus
 pip install -e .
 ```
@@ -282,7 +282,7 @@ having them `await` as appropriate.
 Currently, you don't _have_ to use `autobus.Event` as the base class for your
 events -- in principle, any simple class will work, so long as you can call
 `dict(obj)` and get back a dict that you can pass as keyword args to the
-constructor. But this may change in the future.
+constructor.
 
 Two other small caveats apply:
 
@@ -317,16 +317,10 @@ docker run --name redis -d -p 6379:6379 redis:alpine
 
 ## Contributing
 
-Patches welcome. By all means, please send pull requests!
+I regard autobus as essentially feature complete, so a lack of recent releases
+just means that no one's reported any bugs.
 
-## Todo
-
-- API reference
-- Fix: start() has an occasional race condition where events can be sent before
-  they can be consumed locally. This is probably not a real production issue but
-  it would be nice for them to be synchronized.
-
-Otherwise I regard autobus as pretty feature complete.
+That said, patches are welcome. By all means, please send pull requests!
 
 ## License
 
@@ -341,6 +335,8 @@ you to call him if you want to talk about the project. You should probably use
 Lightbus instead of Autobus. For myself. I wanted something similar to Lightbus
 but simpler, and I thought it would be fun to write my own, which it was. So
 here we are.
+
+Thanks to @javawizard for donating `autobus` package ownership in PyPI.
 
 Autobus was conceived and written to support Rob Flickenger's very cool
 [Persyn](http://github.com/hackerfriendly/persyn) project, so you should check

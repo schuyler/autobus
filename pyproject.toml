@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autobus"
-version = "0.10.0"
+version = "1.0.0"
 authors = [
   { name="Schuyler Erle", email="schuyler@nocat.net" },
 ]
