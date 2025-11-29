@@ -9,6 +9,67 @@ from .base import Transport
 
 logger = logging.getLogger('autobus.transport.multicast')
 
+
+# Python 3.11+ has loop.sock_sendto() and loop.sock_recvfrom()
+# For older versions, we need compatibility shims using add_reader/add_writer
+async def _sock_sendto_compat(loop, sock, data, addr):
+    """Compatibility wrapper for loop.sock_sendto() on Python < 3.11."""
+    if hasattr(loop, 'sock_sendto'):
+        return await loop.sock_sendto(sock, data, addr)
+
+    future = loop.create_future()
+    fd = sock.fileno()
+
+    def callback():
+        try:
+            result = sock.sendto(data, addr)
+            loop.remove_writer(fd)
+            if not future.done():
+                future.set_result(result)
+        except BlockingIOError:
+            pass  # Socket not ready, will try again
+        except Exception as e:
+            loop.remove_writer(fd)
+            if not future.done():
+                future.set_exception(e)
+
+    loop.add_writer(fd, callback)
+    try:
+        return await future
+    except asyncio.CancelledError:
+        loop.remove_writer(fd)
+        raise
+
+
+async def _sock_recvfrom_compat(loop, sock, bufsize):
+    """Compatibility wrapper for loop.sock_recvfrom() on Python < 3.11."""
+    if hasattr(loop, 'sock_recvfrom'):
+        return await loop.sock_recvfrom(sock, bufsize)
+
+    future = loop.create_future()
+    fd = sock.fileno()
+
+    def callback():
+        try:
+            data, addr = sock.recvfrom(bufsize)
+            loop.remove_reader(fd)
+            if not future.done():
+                future.set_result((data, addr))
+        except BlockingIOError:
+            pass  # Socket not ready, will try again
+        except Exception as e:
+            loop.remove_reader(fd)
+            if not future.done():
+                future.set_exception(e)
+
+    loop.add_reader(fd, callback)
+    try:
+        return await future
+    except asyncio.CancelledError:
+        loop.remove_reader(fd)
+        raise
+
+
 # Maximum safe UDP payload size (64KB minus headers, with some margin)
 MAX_UDP_PAYLOAD = 65000
 
@@ -151,7 +212,7 @@ class MulticastTransport(Transport):
         logger.debug("Publishing to %s:%d (channel: %s)", self.group, self.port, channel)
 
         loop = asyncio.get_event_loop()
-        await loop.sock_sendto(self._send_socket, data, (self.group, self.port))
+        await _sock_sendto_compat(loop, self._send_socket, data, (self.group, self.port))
 
     async def subscribe(self, channel: str) -> None:
         if not self._connected:
@@ -180,7 +241,7 @@ class MulticastTransport(Transport):
         loop = asyncio.get_event_loop()
         while True:
             try:
-                data, addr = await loop.sock_recvfrom(self._recv_socket, 65535)
+                data, addr = await _sock_recvfrom_compat(loop, self._recv_socket, 65535)
                 envelope = json.loads(data.decode('utf-8'))
                 channel = envelope.get("channel")
 
