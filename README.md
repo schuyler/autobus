@@ -336,8 +336,9 @@ Lightbus instead of Autobus. For myself. I wanted something similar to Lightbus
 but simpler, and I thought it would be fun to write my own, which it was. So
 here we are.
 
-Thanks to @javawizard for donating `autobus` package ownership in PyPI.
+Thanks to [@javawizard](https://github.com/javawizard) for donating ownership
+of the `autobus` project in PyPI.
 
-Autobus was conceived and written to support Rob Flickenger's very cool
-[Persyn](http://github.com/hackerfriendly/persyn) project, so you should check
-that out as well.
+Autobus was conceived and written to support AI chatbot experiments in
+collaboration with [@hackerfriendly](https://github.com/hackerfriendly). Thanks
+as always for the collaboration, Rob!
